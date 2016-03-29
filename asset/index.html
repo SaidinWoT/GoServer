@@ -1,0 +1,80 @@
+<!doctype html>
+<html>
+  <head>
+    <title>Socket.IO chat</title>
+    <style>
+      * { margin: 0; padding: 0; box-sizing: border-box; }
+      body { font: 13px Helvetica, Arial; }
+      form { background: #000; padding: 3px; position: fixed; bottom: 0; width: 100%; }
+      form input { border: 0; padding: 10px; width: 90%; margin-right: .5%; }
+      form button { width: 9%; background: rgb(130, 224, 255); border: none; padding: 10px; }
+      #messages { list-style-type: none; margin: 0; padding: 0; }
+      #messages li { padding: 5px 10px; }
+      #messages li:nth-child(odd) { background: #eee; }
+    </style>
+  </head>
+  <body>
+    <script src="socket.io-1.3.7.js"></script>
+    <script src="jquery-1.11.1.js"></script>
+    <link rel="stylesheet" type="text/css" href="style.css">
+    <script>
+      var socket = io();
+      socket.on('joined game', function(gameid){
+          window.location.hash = gameid;
+          document.getElementById("boardSelect").className = "hidden";
+      });
+      socket.on('error', console.warn.bind(console));
+      socket.on('board update', function(board){
+        console.log(board);
+        var size = board.Size;
+        var boardElement = document.getElementById("board");
+        boardElement.className = "board board" + size;
+
+        var table = document.createElement("table");
+        table.className = "table table" + size;
+        var idx = 0;
+        for(var r = 0 ; r < size ; r++){
+          var row = document.createElement("tr");
+          table.appendChild(row);
+
+          for(var c = 0 ; c < size ; c++) {
+            var cell = document.createElement("td");
+            row.appendChild(cell);
+            cell.className = "stone stone" + board.Stones[idx++];
+            cell.onclick = (function(r,c){
+              return function() {
+                socket.emit('place stone', r, c)
+              }
+            })(r,c);
+          }
+        }
+
+        while(boardElement.firstChild) {
+          boardElement.removeChild(boardElement.firstChild);
+        }
+
+        boardElement.appendChild(table);
+
+      });
+
+      function newgame(size) {
+        socket.emit('new game', size);
+      }
+
+      var game = parseInt(window.location.hash.substring(1));
+      if(game)
+        socket.emit('join game', game)
+    </script>
+
+    <div id="boardSelect">
+      <span>Select board size:</span> <br>
+      <input type="button" value="9" onclick="newgame(9)"></input>
+      <input type="button" value="13" onclick="newgame(13)"></input>
+      <input type="button" value="19" onclick="newgame(19)"></input>
+    </div>
+
+    <div id="board" class="hidden">
+    </div>
+
+  </body>
+</html>
