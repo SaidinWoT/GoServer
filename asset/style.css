@@ -61,8 +61,8 @@ body { font: 13px Helvetica, Arial; }
 
 /* Board choice stuff */
 #boardSelect {
-  width: 150px;
-  height: 60px;
+  width: 10em;
+  height: 3em;
   position:absolute; /*it can be fixed too*/
   left:0; right:0;
   top:0; bottom:0;
@@ -77,5 +77,5 @@ body { font: 13px Helvetica, Arial; }
 }
 #boardSelect input {
   width:40px;
-  height:30px;
+  height:2em;
 }
