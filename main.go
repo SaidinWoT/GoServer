@@ -1,10 +1,12 @@
 package main
 
 import (
-	"fmt"
-	"github.com/googollee/go-socket.io"
+  "errors"
 	"log"
 	"net/http"
+  "strconv"
+
+	"github.com/googollee/go-socket.io"
 )
 
 var gameid = 0
@@ -16,7 +18,8 @@ func main() {
 		log.Fatal(err)
 	}
 
-	server.On("connection", handleClient)
+  ider := LinearIDer{}
+	server.On("connection", connect(ider))
 	server.On("error", func(so socketio.Socket, err error) {
 		log.Println("error:", err)
 	})
@@ -30,9 +33,9 @@ func main() {
 type Stone int
 
 const (
-	EMPTY Stone = iota
-	BLACK
-	WHITE
+	Empty Stone = iota
+	Black
+	White
 )
 
 type Board struct {
@@ -47,84 +50,104 @@ type Game struct {
 
 var games map[int]*Game
 
-func handleClient(so socketio.Socket) {
-	var currentGame = -1
-	var channel = ""
+type IDer interface {
+  ID() int
+}
 
-	so.On("new game", func(size int) {
-		log.Println("new game", size)
-		switch size {
-		case 9, 13, 19:
-			// Actually make a game and stuff.
-			gameid += 1
-			currentGame = gameid
+type LinearIDer struct{
+  int
+}
 
-			games[currentGame] = &Game{
-				fakeBoard(size),
-				BLACK,
-			}
+func (l LinearIDer) ID() int {
+  l.int++
+  return l.int
+}
 
-			channel = fmt.Sprint("game", gameid)
-			so.Join(channel)
-			so.Emit("joined game", currentGame)
-			so.Emit("board update", games[currentGame].board)
-		default:
-			so.Emit("error", "Bad game size")
-		}
-	})
+type SocketListener struct {
+  channel string
+  IDer
+  *Game
+  socketio.Socket
+}
 
-	so.On("join game", func(gameid int) {
-		log.Println("join game", gameid)
-		// black goes first, then white, then spectators?
-		game, ok := games[gameid]
-		if ok {
-			currentGame = gameid
-			channel = fmt.Sprint("game", gameid)
-			so.Join(channel)
-			so.Emit("joined game", currentGame)
-			so.Emit("board update", game.board)
-		} else {
-			so.Emit("error", "Bad game id")
-		}
+func connect(ider IDer) func (socketio.Socket) {
+  sl := &SocketListener{
+    IDer: ider,
+  }
+  return func(so socketio.Socket) {
+    sl.Socket = so
+    sl.On("new game", sl.MakeGame)
+    sl.On("join game", sl.JoinGame)
+    sl.On("place stone", sl.PlaceStone)
+  }
+}
 
-	})
+func (sl *SocketListener) Error(err string) {
+  sl.Emit("error", err)
+}
 
-	so.On("place stone", func(row, col int) {
-		if currentGame == -1 {
-			so.Emit("error", "Not in a game")
-			return
-		}
-		game, ok := games[currentGame]
-		if !ok {
-			so.Emit("error", "Bad game id")
-			return
-		}
-		board := game.board
-		log.Println("Place stone", row, col, currentGame)
-		pos := board.Size*row + col
-		if pos < 0 || pos >= board.Size*board.Size {
-			so.Emit("error", "Invalid position")
-			return
-		}
+func (sl *SocketListener) MakeGame(size int) {
+  if size != 9 && size != 13 && size != 19 {
+    sl.Error("Bad game size")
+    return
+  }
+  gameID := sl.IDer.ID()
+  games[gameID] = &Game{
+    board: fakeBoard(size),
+    turn:  Black,
+  }
+  
+  sl.JoinGame(gameID)
+}
 
-		if board.Stones[pos] != EMPTY {
-			so.Emit("error", "Position already taken")
-			return
-		}
+func (sl *SocketListener) JoinGame(gameID int) {
+  game, ok := games[gameID]
+  if !ok {
+    sl.Error("Bad game ID")
+    return
+  }
+  channelID := "game" + strconv.Itoa(gameID)
+  sl.channel = channelID
+  sl.Join(channelID)
+  sl.Emit("joined game", gameID)
 
-		board.Stones[board.Size*row+col] = game.turn
-		if game.turn == WHITE {
-			game.turn = BLACK
-		} else {
-			game.turn = WHITE
-		}
-		// Send to everyone
-		so.BroadcastTo(channel, "board update", board)
-		so.Emit("board update", board)
-	})
-	so.On("disconnection", func() {
-		log.Println("on disconnect")
-	})
+  sl.Game = game
+  sl.updateBoard(false)
+}
+
+func (sl *SocketListener) PlaceStone(row, col int) {
+  if err := sl.Game.PlaceStone(row, col); err != nil {
+    sl.Error(err.Error())
+    return
+  }
+  sl.updateBoard(true)
+}
+
+func (sl *SocketListener) updateBoard(global bool) {
+  if global {
+    sl.BroadcastTo(sl.channel, "board update", sl.Game.board)
+  }
+  sl.Emit("board update", sl.Game.board)
+}
+
+func (g *Game) PlaceStone(row, col int) error {
+  if g == nil {
+    return errors.New("Nil game.")
+  }
+  pos := g.board.Size*row + col
+  if pos < 0 || pos >= g.board.Size * g.board.Size {
+    return errors.New("Invalid position")
+  }
+  if g.board.Stones[pos] != Empty {
+    return errors.New("Position already taken")
+  }
+  g.board.Stones[pos] = g.turn
+  if g.turn == White {
+    g.turn = Black
+  } else {
+    g.turn = White
+  }
+  return nil
 }
 
 func fakeBoard(size int) Board {
