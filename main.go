@@ -1,10 +1,10 @@
 package main
 
 import (
-  "errors"
+	"errors"
 	"log"
 	"net/http"
-  "strconv"
+	"strconv"
 
 	"github.com/googollee/go-socket.io"
 )
@@ -18,7 +18,7 @@ func main() {
 		log.Fatal(err)
 	}
 
-  ider := LinearIDer{}
+	ider := LinearIDer{}
 	server.On("connection", connect(ider))
 	server.On("error", func(so socketio.Socket, err error) {
 		log.Println("error:", err)
@@ -51,103 +51,103 @@ type Game struct {
 var games map[int]*Game
 
 type IDer interface {
-  ID() int
+	ID() int
 }
 
-type LinearIDer struct{
-  int
+type LinearIDer struct {
+	int
 }
 
 func (l LinearIDer) ID() int {
-  l.int++
-  return l.int
+	l.int++
+	return l.int
 }
 
 type SocketListener struct {
-  channel string
-  IDer
-  *Game
-  socketio.Socket
+	channel string
+	IDer
+	*Game
+	socketio.Socket
 }
 
-func connect(ider IDer) func (socketio.Socket) {
-  sl := &SocketListener{
-    IDer: ider,
-  }
-  return func(so socketio.Socket) {
-    sl.Socket = so
-    sl.On("new game", sl.MakeGame)
-    sl.On("join game", sl.JoinGame)
-    sl.On("place stone", sl.PlaceStone)
-  }
+func connect(ider IDer) func(socketio.Socket) {
+	sl := &SocketListener{
+		IDer: ider,
+	}
+	return func(so socketio.Socket) {
+		sl.Socket = so
+		sl.On("new game", sl.MakeGame)
+		sl.On("join game", sl.JoinGame)
+		sl.On("place stone", sl.PlaceStone)
+	}
 }
 
 func (sl *SocketListener) Error(err string) {
-  sl.Emit("error", err)
+	sl.Emit("error", err)
 }
 
 func (sl *SocketListener) MakeGame(size int) {
-  if size != 9 && size != 13 && size != 19 {
-    sl.Error("Bad game size")
-    return
-  }
-  gameID := sl.IDer.ID()
-  games[gameID] = &Game{
-    board: fakeBoard(size),
-    turn:  Black,
-  }
-  
-  sl.JoinGame(gameID)
+	if size != 9 && size != 13 && size != 19 {
+		sl.Error("Bad game size")
+		return
+	}
+	gameID := sl.IDer.ID()
+	games[gameID] = &Game{
+		board: fakeBoard(size),
+		turn:  Black,
+	}
+
+	sl.JoinGame(gameID)
 }
 
 func (sl *SocketListener) JoinGame(gameID int) {
-  game, ok := games[gameID]
-  if !ok {
-    sl.Error("Bad game ID")
-    return
-  }
-  channelID := "game" + strconv.Itoa(gameID)
-  sl.channel = channelID
-  sl.Join(channelID)
-  sl.Emit("joined game", gameID)
+	game, ok := games[gameID]
+	if !ok {
+		sl.Error("Bad game ID")
+		return
+	}
+	channelID := "game" + strconv.Itoa(gameID)
+	sl.channel = channelID
+	sl.Join(channelID)
+	sl.Emit("joined game", gameID)
 
-  sl.Game = game
-  sl.updateBoard(false)
+	sl.Game = game
+	sl.updateBoard(false)
 }
 
 func (sl *SocketListener) PlaceStone(row, col int) {
-  if err := sl.Game.PlaceStone(row, col); err != nil {
-    sl.Error(err.Error())
-    return
-  }
-  sl.updateBoard(true)
+	if err := sl.Game.PlaceStone(row, col); err != nil {
+		sl.Error(err.Error())
+		return
+	}
+	sl.updateBoard(true)
 }
 
 func (sl *SocketListener) updateBoard(global bool) {
-  if global {
-    sl.BroadcastTo(sl.channel, "board update", sl.Game.board)
-  }
-  sl.Emit("board update", sl.Game.board)
+	if global {
+		sl.BroadcastTo(sl.channel, "board update", sl.Game.board)
+	}
+	sl.Emit("board update", sl.Game.board)
 }
 
 func (g *Game) PlaceStone(row, col int) error {
-  if g == nil {
-    return errors.New("Nil game.")
-  }
-  pos := g.board.Size*row + col
-  if pos < 0 || pos >= g.board.Size * g.board.Size {
-    return errors.New("Invalid position")
-  }
-  if g.board.Stones[pos] != Empty {
-    return errors.New("Position already taken")
-  }
-  g.board.Stones[pos] = g.turn
-  if g.turn == White {
-    g.turn = Black
-  } else {
-    g.turn = White
-  }
-  return nil
+	if g == nil {
+		return errors.New("Nil game.")
+	}
+	pos := g.board.Size*row + col
+	if pos < 0 || pos >= g.board.Size*g.board.Size {
+		return errors.New("Invalid position")
+	}
+	if g.board.Stones[pos] != Empty {
+		return errors.New("Position already taken")
+	}
+	g.board.Stones[pos] = g.turn
+	if g.turn == White {
+		g.turn = Black
+	} else {
+		g.turn = White
+	}
+	return nil
 }
 
 func fakeBoard(size int) Board {
